@@ -1,6 +1,32 @@
-Release Notes v1.6 (Under Development)
+Release Notes v1.7 (Under Development)
 ===
-### Objectives: *Enhance Lua support, bug fixes and updates"
+### Objectives: *???*
+
+Changes
+-------
+
+- Set names for all threads (unless NO_THREAD_NAME is defined)
+- New API functions for TCP/HTTP clients
+- Fix upload of huge files
+- Allow multiple SSL instances within one application
+- Improve API and user docu
+- Allow to chose betwen static and dynamic Lua library
+- Improve unit test
+- Use temporary file name for partially uploaded files
+- Addtional API functions exported to C++
+- Add a websocket client example
+- Add a websocket client API
+- Update websocket example
+- Make content length available in request_info
+- New API functions: access context, callback for create/delete, access user data
+- Upgraded Lua from 5.2.2 to 5.2.3
+- Integrate LuaXML
+- Fix compiler warnings
+- Updated version number
+
+Release Notes v1.6
+===
+### Objectives: *Enhance Lua support, configuration dialog for windows, new examples, bug fixes and updates*
 
 Changes
 -------

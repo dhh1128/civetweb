@@ -75,7 +75,7 @@ static int guard = 0;                   /* test if any dialog is already open */
 #define abs_path(rel, abs, abs_size) realpath((rel), (abs))
 #endif /* _WIN32 */
 
-#define MAX_OPTIONS 100
+#define MAX_OPTIONS 50
 #define MAX_CONF_FILE_LINE_SIZE (8 * 1024)
 
 static int exit_flag = 0;               /* Main loop should exit */
@@ -138,7 +138,7 @@ static void die(const char *fmt, ...)
 static int MakeConsole();
 #endif
 
-static void show_usage_and_exit(void)
+static void show_usage_and_exit(const char *exeName)
 {
     const struct mg_option *options;
     int i;
@@ -147,12 +147,20 @@ static void show_usage_and_exit(void)
     MakeConsole();
 #endif
 
+    if (exeName==0 || *exeName==0) {
+        exeName = "civetweb";
+    }
+
     fprintf(stderr, "Civetweb v%s, built on %s\n",
             mg_version(), __DATE__);
     fprintf(stderr, "Usage:\n");
-    fprintf(stderr, "  civetweb -A <htpasswd_file> <realm> <user> <passwd>\n");
-    fprintf(stderr, "  civetweb [config_file]\n");
-    fprintf(stderr, "  civetweb [-option value ...]\n");
+    fprintf(stderr, "  Start server with a set of options:\n");
+    fprintf(stderr, "    %s [config_file]\n", exeName);
+    fprintf(stderr, "    %s [-option value ...]\n", exeName);
+    fprintf(stderr, "  Add user/change password:\n");
+    fprintf(stderr, "    %s -A <htpasswd_file> <realm> <user> <passwd>\n", exeName);
+    fprintf(stderr, "  Remove user:\n");
+    fprintf(stderr, "    %s -R <htpasswd_file> <realm> <user>\n", exeName);
     fprintf(stderr, "\nOPTIONS:\n");
 
     options = mg_get_valid_options();
@@ -230,6 +238,26 @@ static char *sdup(const char *str)
     return p;
 }
 
+static const char *get_option(char **options, const char *option_name)
+{
+    int i = 0;
+    const char *opt_value = NULL;
+
+    /* TODO: options should be an array of key-value-pairs, like
+       struct {const char * key, const char * value} options[]
+       but it currently is an array with
+       options[2*i] = key, options[2*i + 1] = value
+    */
+    while (options[2*i] != NULL) {
+        if (strcmp(options[2*i], option_name) == 0) {
+            opt_value = options[2*i + 1];
+            break;
+        }
+        i++;
+    }
+    return opt_value;
+}
+
 static int set_option(char **options, const char *name, const char *value)
 {
     int i, type;
@@ -253,37 +281,56 @@ static int set_option(char **options, const char *name, const char *value)
             /* unknown option */
             return 0;
         case CONFIG_TYPE_NUMBER:
+            /* integer number > 0, e.g. number of threads */
             if (atol(value)<1) {
                 /* invalid number */
                 return 0;
             }
             break;
+        case CONFIG_TYPE_STRING:
+            /* any text */
+            break;
         case CONFIG_TYPE_BOOLEAN:
+            /* boolean value, yes or no */
             if ((0!=strcmp(value,"yes")) && (0!=strcmp(value,"no"))) {
                 /* invalid boolean */
                 return 0;
             }
             break;
+        case CONFIG_TYPE_FILE:
+        case CONFIG_TYPE_DIRECTORY:
+            /* TODO: check this option when it is set, instead of calling verify_existence later */
+            break;
+        case CONFIG_TYPE_EXT_PATTERN:
+            /* list of file extentions */
+            break;
+        default:
+            die("Unknown option type - option %s", name);
+            break;
     }
 
-    for (i = 0; i < MAX_OPTIONS - 3; i++) {
-        if (options[i] == NULL) {
-            options[i] = sdup(name);
-            options[i + 1] = sdup(value);
-            options[i + 2] = NULL;
+    for (i = 0; i < MAX_OPTIONS; i++) {
+        if (options[2*i] == NULL) {
+            options[2*i] = sdup(name);
+            options[2*i + 1] = sdup(value);
+            options[2*i + 2] = NULL;
             break;
-        } else if (!strcmp(options[i], name)) {
-            free(options[i + 1]);
-            options[i + 1] = sdup(value);
+        } else if (!strcmp(options[2*i], name)) {
+            free(options[2*i + 1]);
+            options[2*i + 1] = sdup(value);
             break;
         }
     }
 
-    if (i == MAX_OPTIONS - 3) {
-        die("%s", "Too many options specified");
+    if (i == MAX_OPTIONS) {
+        die("Too many options specified");
     }
 
-    /* TODO: check if this option is defined and the correct data type, return 1 (OK) or 0 (false) */
+    if (options[2*i] == NULL || options[2*i + 1] == NULL) {
+        die("Out of memory");
+    }
+
+    /* option set correctly */
     return 1;
 }
 
@@ -393,7 +440,7 @@ static void process_command_line_arguments(char *argv[], char **options)
            They override config file and default settings. */
         for (i = cmd_line_opts_start; argv[i] != NULL; i += 2) {
             if (argv[i][0] != '-' || argv[i + 1] == NULL) {
-                show_usage_and_exit();
+                show_usage_and_exit(argv[0]);
             }
             if (!set_option(options, &argv[i][1], argv[i + 1])) {
                 printf("command line option is invalid, ignoring it:\n %s %s\n",
@@ -444,17 +491,6 @@ static int is_path_absolute(const char *path)
 #endif
 }
 
-static char *get_option(char **options, const char *option_name)
-{
-    int i;
-
-    for (i = 0; options[i] != NULL; i++)
-        if (!strcmp(options[i], option_name))
-            return options[i + 1];
-
-    return NULL;
-}
-
 static void verify_existence(char **options, const char *option_name,
                              int must_be_dir)
 {
@@ -486,7 +522,8 @@ static void verify_existence(char **options, const char *option_name,
 static void set_absolute_path(char *options[], const char *option_name,
                               const char *path_to_civetweb_exe)
 {
-    char path[PATH_MAX] = "", abs[PATH_MAX] = "", *option_value;
+    char path[PATH_MAX] = "", abs[PATH_MAX] = "";
+    const char *option_value;
     const char *p;
 
     /* Check whether option is already set */
@@ -515,24 +552,55 @@ static void set_absolute_path(char *options[], const char *option_name,
     }
 }
 
+
+#ifdef USE_LUA
+#define main luatest_main
+#define luaL_openlibs lua_civet_openlibs
+struct lua_State;
+extern void lua_civet_openlibs(struct lua_State *L);
+#include "../src/third_party/lua-5.2.3/src/lua.c"
+#undef main
+#endif
+
+
 static void start_civetweb(int argc, char *argv[])
 {
     struct mg_callbacks callbacks;
-    char *options[MAX_OPTIONS];
+    char *options[2*MAX_OPTIONS+1];
     int i;
 
-    /* Edit passwords file if -A option is specified */
+    /* Edit passwords file: Add user or change password, if -A option is specified */
     if (argc > 1 && !strcmp(argv[1], "-A")) {
         if (argc != 6) {
-            show_usage_and_exit();
+            show_usage_and_exit(argv[0]);
         }
         exit(mg_modify_passwords_file(argv[2], argv[3], argv[4], argv[5]) ?
              EXIT_SUCCESS : EXIT_FAILURE);
     }
 
+    /* Edit passwords file: Remove user, if -R option is specified */
+    if (argc > 1 && !strcmp(argv[1], "-R")) {
+        if (argc != 5) {
+            show_usage_and_exit(argv[0]);
+        }
+        exit(mg_modify_passwords_file(argv[2], argv[3], argv[4], NULL) ?
+             EXIT_SUCCESS : EXIT_FAILURE);
+    }
+
+    /* Call Lua with additional Civetweb specific Lua functions, if -L option is specified */
+    if (argc > 1 && !strcmp(argv[1], "-L")) {
+#ifdef WIN32
+        MakeConsole();
+#endif
+#ifdef USE_LUA
+        exit(luatest_main(argc-1, &argv[1]));
+#endif
+        exit(EXIT_FAILURE);
+    }
+
     /* Show usage if -h or --help options are specified */
-    if (argc == 2 && (!strcmp(argv[1], "-h") || !strcmp(argv[1], "--help"))) {
-        show_usage_and_exit();
+    if (argc == 2 && (!strcmp(argv[1], "-h") || !strcmp(argv[1], "-H") || !strcmp(argv[1], "--help"))) {
+        show_usage_and_exit(argv[0]);
     }
 
     options[0] = NULL;
@@ -679,7 +747,7 @@ static BOOL CALLBACK SettingsDlgProc(HWND hDlg, UINT msg, WPARAM wParam, LPARAM 
     int i, j;
     const char *name, *value;
     const struct mg_option *default_options = mg_get_valid_options();
-    char *file_options[MAX_OPTIONS] = {0};
+    char *file_options[MAX_OPTIONS*2+1] = {0};
     char *title;
 
     switch (msg) {
@@ -734,7 +802,8 @@ static BOOL CALLBACK SettingsDlgProc(HWND hDlg, UINT msg, WPARAM wParam, LPARAM 
                 }
             }
             for (i = 0; i<MAX_OPTIONS; i++) {
-                free(file_options[i]);
+                free(file_options[2*i]);
+                free(file_options[2*i+1]);
             }
             break;
 
@@ -1429,6 +1498,9 @@ static LRESULT CALLBACK WindowProc(HWND hWnd, UINT msg, WPARAM wParam,
     return DefWindowProc(hWnd, msg, wParam, lParam);
 }
 
+#include <fcntl.h>
+#include <io.h>
+
 static int MakeConsole() {
     DWORD err;
     int ok = (GetConsoleWindow() != NULL);
@@ -1443,10 +1515,19 @@ static int MakeConsole() {
             }
             AttachConsole(GetCurrentProcessId());
         }
-        freopen("CON", "a", stdout);
-        freopen("CON", "a", stderr);
+
         ok = (GetConsoleWindow() != NULL);
+        if (ok) {
+            freopen("CONIN$", "r", stdin);
+            freopen("CONOUT$", "w", stdout);
+            freopen("CONOUT$", "w", stderr);
+        }
     }
+
+    if (ok) {
+        SetConsoleTitle(server_name);
+    }
+
     return ok;
 }
 
@@ -1490,6 +1571,14 @@ int WINAPI WinMain(HINSTANCE hInst, HINSTANCE hPrev, LPSTR cmdline, int show)
     /* Return the WM_QUIT value. */
     return (int) msg.wParam;
 }
+
+#if defined(CONSOLE)
+void main(void)
+{
+    WinMain(0, 0, 0, 0);
+}
+#endif
+
 #elif defined(USE_COCOA)
 #import <Cocoa/Cocoa.h>
 

@@ -377,6 +377,10 @@ must be called error404.ext, error4xx.ext or error.ext, whereas the file
 extention may be one of the extentions specified for the index_files option.
 See the [Wikipedia page on HTTP status codes](http://en.wikipedia.org/wiki/HTTP_status_code).
 
+### decode\_url `yes`
+URL encoded request strings are decoded in the server, unless it is disabled
+by setting this option to `no`.
+
 # Lua Scripts and Lua Server Pages
 Pre-built Windows and Mac civetweb binaries have built-in Lua scripting
 support as well as support for Lua Server Pages.
@@ -404,7 +408,7 @@ page, one can write:
     </p>
 
 Lua is known for it's speed and small size. Civetweb currently uses Lua
-version 5.2.2. The documentation for it can be found in the
+version 5.2.3. The documentation for it can be found in the
 [Lua 5.2 reference manual](http://www.lua.org/manual/5.2/).
 
 

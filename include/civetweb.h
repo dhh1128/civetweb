@@ -24,7 +24,7 @@
 #define CIVETWEB_HEADER_INCLUDED
 
 #ifndef CIVETWEB_VERSION
-#define CIVETWEB_VERSION "1.6"
+#define CIVETWEB_VERSION "1.7"
 #endif
 
 #ifndef CIVETWEB_API
@@ -61,7 +61,11 @@ struct mg_request_info {
                                    NULL */
     const char *remote_user;    /* Authenticated user, or NULL if no auth
                                    used */
-    long remote_ip;             /* Client's IP address */
+    char remote_addr[48];       /* Client's IP address as a string. */
+    long remote_ip;             /* Client's IP address. Deprecated: use remote_addr instead */
+
+    long long content_length;   /* Length (in bytes) of the request body,
+                                   can be -1 if no length was given. */
     int remote_port;            /* Client's port */
     int is_ssl;                 /* 1 if SSL-ed, 0 if not */
     void *user_data;            /* User data pointer passed to mg_start() */
@@ -153,6 +157,17 @@ struct mg_callbacks {
        Parameters:
          status: HTTP error status code. */
     int  (*http_error)(struct mg_connection *, int status);
+
+    /* Called after civetweb context has been created, before requests
+       are processed.
+       Parameters:
+         ctx: context handle */
+    void (*init_context)(struct mg_context * ctx);
+
+    /* Called when civetweb context is deleted.
+       Parameters:
+         ctx: context handle */
+    void (*exit_context)(struct mg_context * ctx);
 };
 
 
@@ -234,6 +249,14 @@ CIVETWEB_API void mg_set_request_handler(struct mg_context *ctx, const char *uri
    names, return value is guaranteed to be non-NULL. If parameter is not
    set, zero-length string is returned. */
 CIVETWEB_API const char *mg_get_option(const struct mg_context *ctx, const char *name);
+
+
+/* Get context from connection. */
+CIVETWEB_API struct mg_context *mg_get_context(struct mg_connection *conn);
+
+
+/* Get user data passed to mg_start from context. */
+CIVETWEB_API void *mg_get_user_data(struct mg_context *ctx);
 
 
 #if defined(MG_LEGACY_INTERFACE)
@@ -551,6 +574,64 @@ CIVETWEB_API void mg_cry(struct mg_connection *conn,
 
 /* utility method to compare two buffers, case incensitive. */
 CIVETWEB_API int mg_strncasecmp(const char *s1, const char *s2, size_t len);
+
+/* Connect to a websocket as a client
+   Parameters:
+     host: host to connect to, i.e. "echo.websocket.org" or "192.168.1.1" or "localhost"
+     port: server port
+     use_ssl: make a secure connection to server
+     error_buffer, error_buffer_size: buffer for an error message
+     path: server path you are trying to connect to, i.e. if connection to localhost/app, path should be "/app"
+     origin: value of the Origin HTTP header
+     data_func: callback that should be used when data is received from the server
+     user_data: user supplied argument
+
+   Return:
+     On success, valid mg_connection object.
+     On error, NULL. Se error_buffer for details.
+*/
+
+typedef int  (*websocket_data_func)(struct mg_connection *, int bits,
+                           char *data, size_t data_len);
+
+typedef void (*websocket_close_func)(struct mg_connection *);
+
+CIVETWEB_API struct mg_connection *mg_connect_websocket_client(const char *host, int port, int use_ssl,
+                                               char *error_buffer, size_t error_buffer_size,
+                                               const char *path, const char *origin,
+                                               websocket_data_func data_func, websocket_close_func close_func,
+                                               void * user_data);
+
+/* Connect to a TCP server as a client (can be used to connect to a HTTP server)
+   Parameters:
+     host: host to connect to, i.e. "www.wikipedia.org" or "192.168.1.1" or "localhost"
+     port: server port
+     use_ssl: make a secure connection to server
+     error_buffer, error_buffer_size: buffer for an error message
+
+   Return:
+     On success, valid mg_connection object.
+     On error, NULL. Se error_buffer for details.
+*/
+CIVETWEB_API struct mg_connection *mg_connect_client(const char *host, int port, int use_ssl,
+                                               char *error_buffer, size_t error_buffer_size);
+
+
+enum {
+    TIMEOUT_INFINITE = -1
+};
+
+/* Wait for a response from the server
+   Parameters:
+     conn: connection
+     ebuf, ebuf_len: error message placeholder.
+     timeout: time to wait for a response in milliseconds (if < 0 then wait forever)
+
+   Return:
+     On success, >= 0
+     On error/timeout, < 0
+*/
+CIVETWEB_API int mg_get_response(struct mg_connection *conn, char *ebuf, size_t ebuf_len, int timeout);
 
 
 #ifdef __cplusplus

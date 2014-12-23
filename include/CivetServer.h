@@ -65,6 +65,14 @@ public:
      */
     virtual bool handleDelete(CivetServer *server, struct mg_connection *conn);
 
+    /**
+     * Callback method for OPTIONS request.
+     *
+     * @param server - the calling server
+     * @param conn - the connection information
+     * @returns true if implemented, false otherwise
+     */
+    virtual bool handleOptions(CivetServer *server, struct mg_connection *conn);
 };
 
 /**
@@ -159,7 +167,10 @@ public:
      * occurance value is a zero-based index of a particular key name.  This
      * should not be confused with the index over all of the keys.  Note that this
      * function assumes that parameters are sent as text in http query string
-     * format, which is the default for web forms.
+     * format, which is the default for web forms. This function will work for
+     * html forms with method="GET" and method="POST" attributes. In other cases,
+     * you may use a getParam version that directly takes the data instead of the
+     * connection as a first argument.
      *
      * @param conn - parameters are read from the data sent through this connection
      * @param name - the key to search for
